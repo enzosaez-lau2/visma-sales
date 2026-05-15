@@ -49,7 +49,7 @@ Responde SOLO en JSON sin markdown ni backticks, con esta estructura exacta:
   "siguientePaso": "Acción concreta recomendada para el vendedor"
 }`;
 
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
+  const res = await fetch("/api/analyze", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
