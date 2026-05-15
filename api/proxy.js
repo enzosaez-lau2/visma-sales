@@ -1,43 +1,24 @@
-export const config = { runtime: 'edge' };
+export default async function handler(req, res) {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
-const API_KEY = "cb5a944dadb61a3b7eb51c321a3c4140";
-const API_BASE = "https://api.samu.ai";
+  if (req.method === 'OPTIONS') return res.status(200).end();
 
-export default async function handler(req) {
-  const url = new URL(req.url);
-  const target = url.searchParams.get("path");
-
-  if (!target) {
-    return new Response(JSON.stringify({ error: "Missing path param" }), { status: 400 });
-  }
-
-  const apiUrl = `${API_BASE}${target}`;
+  const path = req.query.path;
+  if (!path) return res.status(400).json({ error: 'Missing path' });
 
   try {
-    const response = await fetch(apiUrl, {
+    const response = await fetch(`https://api.samu.ai${path}`, {
       method: req.method,
       headers: {
-        "apiKey": API_KEY,
-        "Content-Type": "application/json",
+        'apiKey': 'cb5a944dadb61a3b7eb51c321a3c4140',
+        'Content-Type': 'application/json',
       },
-      body: req.method !== "GET" ? req.body : undefined,
     });
-
     const text = await response.text();
-
-    return new Response(text, {
-      status: response.status,
-      headers: {
-        "Content-Type": response.headers.get("Content-Type") || "application/json",
-        "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Methods": "GET, POST, PUT, OPTIONS",
-        "Access-Control-Allow-Headers": "Content-Type",
-      },
-    });
+    res.status(response.status).send(text);
   } catch (err) {
-    return new Response(JSON.stringify({ error: err.message }), {
-      status: 500,
-      headers: { "Access-Control-Allow-Origin": "*" },
-    });
+    res.status(500).json({ error: err.message });
   }
 }
