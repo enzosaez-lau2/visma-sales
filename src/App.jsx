@@ -19,30 +19,44 @@ const USERS = [
   { id: "67d40c58954990bf63d7ebd7", name: "Nicole Puelles", email: "nicole.puelles@visma.com", image: "https://lh3.googleusercontent.com/a/ACg8ocJvyW8SU3DeYq08RslU07Es0oGBa04AEHzTlLx6UKTl407IizY=s96-c" },
 ];
 
+// Call Anthropic directly from browser (CORS is allowed by Anthropic for browser clients)
 const claudeAnalyze = async (meetingData, transcription) => {
-  // Build a short, focused prompt to stay within timeout
   const txText = transcription?.messages
-    ? transcription.messages.slice(0, 30).map(m => `${transcription.participants?.[m.participantId] || "P"+m.participantId}: ${m.text}`).join("\n")
+    ? transcription.messages.slice(0, 20).map(m =>
+        `${transcription.participants?.[m.participantId] || "P"+m.participantId}: ${m.text}`
+      ).join("\n").slice(0, 1500)
     : "";
 
-  const prompt = `Analiza esta reunión de ventas. Responde SOLO JSON sin markdown.
+  const context = [
+    `Reunión: ${meetingData.name || "Sin nombre"}`,
+    `Duración: ${meetingData.duration ? Math.round(meetingData.duration/60)+"min" : "?"}`,
+    `Score: ${meetingData.score?.score ?? "?"}`,
+    meetingData.score?.feedback ? `Feedback: ${meetingData.score.feedback.slice(0,300)}` : "",
+    txText ? `Transcripción:\n${txText}` : "",
+  ].filter(Boolean).join("\n");
 
-REUNIÓN: ${meetingData.name || "Sin nombre"} | Duración: ${meetingData.duration ? Math.round(meetingData.duration/60)+"min" : "?"} | Score: ${meetingData.score?.score ?? "?"}/100
-FEEDBACK: ${meetingData.score?.feedback || ""}
-TRANSCRIPCIÓN: ${txText.slice(0, 2000)}
+  const prompt = `Analiza esta reunión de ventas B2B. Responde ÚNICAMENTE con JSON válido, sin texto extra.
 
-JSON requerido:
-{"temasClave":["x","x"],"preguntasSinRespuesta":["x"],"puntosPositivos":["x","x"],"areasDesMejora":[{"area":"x","descripcion":"x","tipo":"tecnica"}],"recomendaciones":["x","x"],"momentoClave":"x","nivelEnergia":70,"escuchaActiva":65,"manejo_objeciones":75,"siguientePaso":"x"}`;
+${context}
 
-  const res = await fetch("/api/analyze", {
+Formato exacto requerido:
+{"temasClave":["tema1","tema2"],"preguntasSinRespuesta":["pregunta1"],"puntosPositivos":["punto1","punto2"],"areasDesMejora":[{"area":"nombre","descripcion":"detalle","tipo":"tecnica"}],"recomendaciones":["rec1","rec2"],"momentoClave":"frase del momento más importante","nivelEnergia":70,"escuchaActiva":65,"manejo_objeciones":75,"siguientePaso":"acción concreta"}`;
+
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": "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",
+      "anthropic-version": "2023-06-01",
+      "anthropic-dangerous-direct-browser-access": "true",
+    },
     body: JSON.stringify({
       model: "claude-haiku-4-5-20251001",
-      max_tokens: 800,
+      max_tokens: 600,
       messages: [{ role: "user", content: prompt }],
     }),
   });
+
   const data = await res.json();
   const text = data.content?.find(b => b.type === "text")?.text || "{}";
   try { return JSON.parse(text.replace(/```json|```/g, "").trim()); }
@@ -50,47 +64,47 @@ JSON requerido:
 };
 
 const Avatar = ({ user, size = 40 }) => {
-  const initials = user.name.split(" ").slice(0, 2).map(n => n[0]).join("");
+  const initials = user.name.split(" ").slice(0,2).map(n=>n[0]).join("");
   const colors = ["#4F46E5","#0891B2","#059669","#D97706","#DC2626","#7C3AED","#DB2777","#0284C7"];
   const color = colors[user.name.charCodeAt(0) % colors.length];
   const [imgFailed, setImgFailed] = useState(false);
   if (user.image && !imgFailed)
-    return <img src={user.image} alt={user.name} onError={() => setImgFailed(true)} style={{ width:size, height:size, borderRadius:"50%", objectFit:"cover", flexShrink:0 }} />;
-  return <div style={{ width:size, height:size, borderRadius:"50%", background:color, display:"flex", alignItems:"center", justifyContent:"center", color:"#fff", fontWeight:700, fontSize:size*0.38, flexShrink:0 }}>{initials}</div>;
+    return <img src={user.image} alt={user.name} onError={()=>setImgFailed(true)} style={{ width:size,height:size,borderRadius:"50%",objectFit:"cover",flexShrink:0 }}/>;
+  return <div style={{ width:size,height:size,borderRadius:"50%",background:color,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:700,fontSize:size*0.38,flexShrink:0 }}>{initials}</div>;
 };
 
-const ScoreRing = ({ score, size = 80 }) => {
-  const pct = Math.min(100, Math.max(0, score || 0));
-  const r = (size-8)/2, circ = 2*Math.PI*r, dash = (pct/100)*circ;
-  const color = pct >= 75 ? "#10B981" : pct >= 50 ? "#F59E0B" : "#EF4444";
+const ScoreRing = ({ score, size=80 }) => {
+  const pct = Math.min(100,Math.max(0,score||0));
+  const r=(size-8)/2,circ=2*Math.PI*r,dash=(pct/100)*circ;
+  const color = pct>=75?"#10B981":pct>=50?"#F59E0B":"#EF4444";
   return (
     <svg width={size} height={size} style={{ transform:"rotate(-90deg)" }}>
       <circle cx={size/2} cy={size/2} r={r} fill="none" stroke="#E5E7EB" strokeWidth={6}/>
       <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={color} strokeWidth={6} strokeDasharray={`${dash} ${circ-dash}`} strokeLinecap="round" style={{ transition:"stroke-dasharray 0.8s ease" }}/>
-      <text x={size/2} y={size/2} textAnchor="middle" dominantBaseline="central" style={{ transform:`rotate(90deg)`, transformOrigin:`${size/2}px ${size/2}px`, fontSize:size*0.26, fontWeight:700, fill:color, fontFamily:"inherit" }}>{pct}</text>
+      <text x={size/2} y={size/2} textAnchor="middle" dominantBaseline="central" style={{ transform:`rotate(90deg)`,transformOrigin:`${size/2}px ${size/2}px`,fontSize:size*0.26,fontWeight:700,fill:color,fontFamily:"inherit" }}>{pct}</text>
     </svg>
   );
 };
 
 const SkillBar = ({ label, value, color }) => (
   <div style={{ marginBottom:10 }}>
-    <div style={{ display:"flex", justifyContent:"space-between", fontSize:12, color:"#6B7280", marginBottom:4 }}><span>{label}</span><span style={{ fontWeight:600 }}>{value}%</span></div>
-    <div style={{ height:6, borderRadius:99, background:"#F3F4F6", overflow:"hidden" }}>
-      <div style={{ width:`${value}%`, height:"100%", borderRadius:99, background:color, transition:"width 1s ease" }}/>
+    <div style={{ display:"flex",justifyContent:"space-between",fontSize:12,color:"#6B7280",marginBottom:4 }}><span>{label}</span><span style={{ fontWeight:600 }}>{value}%</span></div>
+    <div style={{ height:6,borderRadius:99,background:"#F3F4F6",overflow:"hidden" }}>
+      <div style={{ width:`${value}%`,height:"100%",borderRadius:99,background:color,transition:"width 1s ease" }}/>
     </div>
   </div>
 );
 
 const Badge = ({ text, type="default" }) => {
-  const st = { tecnica:{background:"#EFF6FF",color:"#1D4ED8",border:"1px solid #BFDBFE"}, blanda:{background:"#F0FDF4",color:"#15803D",border:"1px solid #BBF7D0"}, default:{background:"#F9FAFB",color:"#374151",border:"1px solid #E5E7EB"} };
-  return <span style={{ ...st[type], borderRadius:99, padding:"2px 10px", fontSize:11, fontWeight:600, display:"inline-block" }}>{text}</span>;
+  const st = { tecnica:{background:"#EFF6FF",color:"#1D4ED8",border:"1px solid #BFDBFE"},blanda:{background:"#F0FDF4",color:"#15803D",border:"1px solid #BBF7D0"},default:{background:"#F9FAFB",color:"#374151",border:"1px solid #E5E7EB"} };
+  return <span style={{ ...st[type],borderRadius:99,padding:"2px 10px",fontSize:11,fontWeight:600,display:"inline-block" }}>{text}</span>;
 };
 
 export default function App() {
   const [view, setView] = useState("home");
   const [selectedUser, setSelectedUser] = useState(null);
-  const [dateFrom, setDateFrom] = useState(() => { const d=new Date(); d.setDate(d.getDate()-30); return d.toISOString().slice(0,10); });
-  const [dateTo, setDateTo] = useState(() => new Date().toISOString().slice(0,10));
+  const [dateFrom, setDateFrom] = useState(()=>{ const d=new Date(); d.setDate(d.getDate()-30); return d.toISOString().slice(0,10); });
+  const [dateTo, setDateTo] = useState(()=>new Date().toISOString().slice(0,10));
   const [meetings, setMeetings] = useState([]);
   const [loadingMeetings, setLoadingMeetings] = useState(false);
   const [selectedMeeting, setSelectedMeeting] = useState(null);
@@ -103,7 +117,7 @@ export default function App() {
     setLoadingMeetings(true); setError(null); setMeetings([]);
     try {
       const data = await samuFetch(`/api/meetings?dateFrom=${dateFrom}T00:00:00Z&dateTo=${dateTo}T23:59:59Z`);
-      const filtered = Array.isArray(data) ? data.filter(m => m.hostEmail===user.email || (m.users||[]).includes(user.email)) : [];
+      const filtered = Array.isArray(data) ? data.filter(m=>m.hostEmail===user.email||(m.users||[]).includes(user.email)) : [];
       setMeetings(filtered);
     } catch { setError("No se pudieron cargar las reuniones. Intenta de nuevo."); }
     finally { setLoadingMeetings(false); }
@@ -114,35 +128,35 @@ export default function App() {
     setLoadingAnalysis(true); setView("meeting");
     try {
       const [detail, transcription] = await Promise.all([
-        samuFetch(`/api/meeting/${meeting.id}`).catch(() => meeting),
-        samuFetch(`/api/meeting/${meeting.id}/transcription`).catch(() => null),
+        samuFetch(`/api/meeting/${meeting.id}`).catch(()=>meeting),
+        samuFetch(`/api/meeting/${meeting.id}/transcription`).catch(()=>null),
       ]);
       setMeetingDetail(detail);
       const ai = await claudeAnalyze(detail, transcription);
       setAnalysis(ai);
-    } catch { setError("Error cargando los detalles."); }
+    } catch(e) { setError("Error: "+e.message); }
     finally { setLoadingAnalysis(false); }
   };
 
-  const fmt = iso => iso ? new Date(iso).toLocaleDateString("es-CL",{day:"2-digit",month:"short",year:"numeric"}) : "—";
-  const fmtDur = s => s ? `${Math.floor(s/60)} min` : "—";
+  const fmt = iso => iso?new Date(iso).toLocaleDateString("es-CL",{day:"2-digit",month:"short",year:"numeric"}):"—";
+  const fmtDur = s => s?`${Math.floor(s/60)} min`:"—";
 
   const c = {
-    app:{ fontFamily:"'Plus Jakarta Sans',system-ui,sans-serif", minHeight:"100vh", background:"#F8FAFC", color:"#111827" },
-    topbar:{ background:"#fff", borderBottom:"1px solid #E5E7EB", padding:"0 24px", height:56, display:"flex", alignItems:"center", gap:12, position:"sticky", top:0, zIndex:100 },
-    main:{ maxWidth:1100, margin:"0 auto", padding:"28px 20px" },
-    card:{ background:"#fff", border:"1px solid #E5E7EB", borderRadius:14, padding:20 },
-    userGrid:{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))", gap:14 },
-    userCard:{ background:"#fff", border:"1px solid #E5E7EB", borderRadius:14, padding:18, cursor:"pointer", transition:"all 0.15s", display:"flex", flexDirection:"column", alignItems:"center", gap:10, textAlign:"center" },
-    meetingCard:{ background:"#fff", border:"1px solid #E5E7EB", borderRadius:12, padding:16, cursor:"pointer", transition:"all 0.15s", marginBottom:10, display:"flex", alignItems:"center", gap:14 },
-    chip:{ background:"#EFF6FF", color:"#1D4ED8", borderRadius:99, padding:"3px 10px", fontSize:11, fontWeight:600 },
-    grid2:{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:16 },
-    tag:     { background:"#FEF3C7", color:"#92400E", borderRadius:8, padding:"6px 12px", fontSize:13, borderLeft:"3px solid #F59E0B", marginBottom:6, display:"block" },
-    tagRed:  { background:"#FEF2F2", color:"#991B1B", borderRadius:8, padding:"6px 12px", fontSize:13, borderLeft:"3px solid #EF4444", marginBottom:6, display:"block" },
-    tagGreen:{ background:"#F0FDF4", color:"#166534", borderRadius:8, padding:"6px 12px", fontSize:13, borderLeft:"3px solid #10B981", marginBottom:6, display:"block" },
-    tagBlue: { background:"#EFF6FF", color:"#1D4ED8", borderRadius:8, padding:"6px 12px", fontSize:13, borderLeft:"3px solid #4F46E5", marginBottom:6, display:"block" },
-    spinner: { display:"inline-block", width:20, height:20, border:"3px solid #E5E7EB", borderTopColor:"#4F46E5", borderRadius:"50%", animation:"spin 0.7s linear infinite" },
-    crumbBtn:{ background:"none", border:"none", cursor:"pointer", color:"#4F46E5", fontWeight:600, fontSize:13, padding:0, fontFamily:"inherit" },
+    app:{ fontFamily:"'Plus Jakarta Sans',system-ui,sans-serif",minHeight:"100vh",background:"#F8FAFC",color:"#111827" },
+    topbar:{ background:"#fff",borderBottom:"1px solid #E5E7EB",padding:"0 24px",height:56,display:"flex",alignItems:"center",gap:12,position:"sticky",top:0,zIndex:100 },
+    main:{ maxWidth:1100,margin:"0 auto",padding:"28px 20px" },
+    card:{ background:"#fff",border:"1px solid #E5E7EB",borderRadius:14,padding:20 },
+    userGrid:{ display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))",gap:14 },
+    userCard:{ background:"#fff",border:"1px solid #E5E7EB",borderRadius:14,padding:18,cursor:"pointer",transition:"all 0.15s",display:"flex",flexDirection:"column",alignItems:"center",gap:10,textAlign:"center" },
+    meetingCard:{ background:"#fff",border:"1px solid #E5E7EB",borderRadius:12,padding:16,cursor:"pointer",transition:"all 0.15s",marginBottom:10,display:"flex",alignItems:"center",gap:14 },
+    chip:{ background:"#EFF6FF",color:"#1D4ED8",borderRadius:99,padding:"3px 10px",fontSize:11,fontWeight:600 },
+    grid2:{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:16 },
+    tag:     { background:"#FEF3C7",color:"#92400E",borderRadius:8,padding:"6px 12px",fontSize:13,borderLeft:"3px solid #F59E0B",marginBottom:6,display:"block" },
+    tagRed:  { background:"#FEF2F2",color:"#991B1B",borderRadius:8,padding:"6px 12px",fontSize:13,borderLeft:"3px solid #EF4444",marginBottom:6,display:"block" },
+    tagGreen:{ background:"#F0FDF4",color:"#166534",borderRadius:8,padding:"6px 12px",fontSize:13,borderLeft:"3px solid #10B981",marginBottom:6,display:"block" },
+    tagBlue: { background:"#EFF6FF",color:"#1D4ED8",borderRadius:8,padding:"6px 12px",fontSize:13,borderLeft:"3px solid #4F46E5",marginBottom:6,display:"block" },
+    spinner: { display:"inline-block",width:20,height:20,border:"3px solid #E5E7EB",borderTopColor:"#4F46E5",borderRadius:"50%",animation:"spin 0.7s linear infinite" },
+    crumbBtn:{ background:"none",border:"none",cursor:"pointer",color:"#4F46E5",fontWeight:600,fontSize:13,padding:0,fontFamily:"inherit" },
   };
 
   return (
@@ -157,77 +171,77 @@ export default function App() {
       `}</style>
 
       <div style={c.topbar}>
-        <div style={{ fontWeight:800, fontSize:15, color:"#1E3A5F", letterSpacing:-0.5 }}>Visma <span style={{ color:"#4F46E5" }}>Sales Intel</span></div>
+        <div style={{ fontWeight:800,fontSize:15,color:"#1E3A5F",letterSpacing:-0.5 }}>Visma <span style={{ color:"#4F46E5" }}>Sales Intel</span></div>
         {view!=="home" && (
-          <div style={{ display:"flex", alignItems:"center", gap:8, fontSize:13, color:"#6B7280", marginLeft:12 }}>
+          <div style={{ display:"flex",alignItems:"center",gap:8,fontSize:13,color:"#6B7280",marginLeft:12 }}>
             <span>›</span><button style={c.crumbBtn} onClick={()=>setView("home")}>Vendedores</button>
-            {selectedUser && <><span>›</span><span style={{ color:"#374151" }}>{selectedUser.name.split(" ")[0]}</span></>}
-            {view==="meeting" && selectedMeeting && <><span>›</span><span style={{ color:"#374151", maxWidth:180, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{selectedMeeting.name||"Reunión"}</span></>}
+            {selectedUser&&<><span>›</span><span style={{ color:"#374151" }}>{selectedUser.name.split(" ")[0]}</span></>}
+            {view==="meeting"&&selectedMeeting&&<><span>›</span><span style={{ color:"#374151",maxWidth:180,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{selectedMeeting.name||"Reunión"}</span></>}
           </div>
         )}
-        <div style={{ marginLeft:"auto", fontSize:12, color:"#9CA3AF" }}>Powered by Samu.ai</div>
+        <div style={{ marginLeft:"auto",fontSize:12,color:"#9CA3AF" }}>Powered by Samu.ai</div>
       </div>
 
-      {view==="home" && (
+      {view==="home"&&(
         <div style={c.main} className="anim">
-          <div style={{ fontSize:22, fontWeight:800, color:"#111827", letterSpacing:-0.5, marginBottom:6 }}>Panel de Ventas</div>
-          <div style={{ fontSize:14, color:"#6B7280", marginBottom:24 }}>Selecciona un vendedor para revisar sus reuniones y análisis de desempeño</div>
-          <div style={{ ...c.card, marginBottom:24, display:"flex", alignItems:"center", gap:16, flexWrap:"wrap" }}>
-            <span style={{ fontSize:13, fontWeight:600, color:"#374151" }}>Rango de fechas</span>
-            <input type="date" value={dateFrom} onChange={e=>setDateFrom(e.target.value)} style={{ border:"1px solid #E5E7EB", borderRadius:8, padding:"6px 12px", fontSize:13, fontFamily:"inherit" }}/>
-            <span style={{ fontSize:13, color:"#9CA3AF" }}>hasta</span>
-            <input type="date" value={dateTo} onChange={e=>setDateTo(e.target.value)} style={{ border:"1px solid #E5E7EB", borderRadius:8, padding:"6px 12px", fontSize:13, fontFamily:"inherit" }}/>
+          <div style={{ fontSize:22,fontWeight:800,color:"#111827",letterSpacing:-0.5,marginBottom:6 }}>Panel de Ventas</div>
+          <div style={{ fontSize:14,color:"#6B7280",marginBottom:24 }}>Selecciona un vendedor para revisar sus reuniones y análisis de desempeño</div>
+          <div style={{ ...c.card,marginBottom:24,display:"flex",alignItems:"center",gap:16,flexWrap:"wrap" }}>
+            <span style={{ fontSize:13,fontWeight:600,color:"#374151" }}>Rango de fechas</span>
+            <input type="date" value={dateFrom} onChange={e=>setDateFrom(e.target.value)} style={{ border:"1px solid #E5E7EB",borderRadius:8,padding:"6px 12px",fontSize:13,fontFamily:"inherit" }}/>
+            <span style={{ fontSize:13,color:"#9CA3AF" }}>hasta</span>
+            <input type="date" value={dateTo} onChange={e=>setDateTo(e.target.value)} style={{ border:"1px solid #E5E7EB",borderRadius:8,padding:"6px 12px",fontSize:13,fontFamily:"inherit" }}/>
           </div>
           <div style={c.userGrid}>
-            {USERS.map(u => (
-              <div key={u.id} className="ucard" style={c.userCard} onClick={()=>{ setSelectedUser(u); setView("vendor"); loadMeetings(u); }}>
+            {USERS.map(u=>(
+              <div key={u.id} className="ucard" style={c.userCard} onClick={()=>{ setSelectedUser(u);setView("vendor");loadMeetings(u); }}>
                 <Avatar user={u} size={52}/>
                 <div>
-                  <div style={{ fontSize:14, fontWeight:700, color:"#111827", lineHeight:1.3 }}>{u.name}</div>
-                  <div style={{ fontSize:11, color:"#9CA3AF" }}>{u.email.split("@")[0]}</div>
+                  <div style={{ fontSize:14,fontWeight:700,color:"#111827",lineHeight:1.3 }}>{u.name}</div>
+                  <div style={{ fontSize:11,color:"#9CA3AF" }}>{u.email.split("@")[0]}</div>
                 </div>
-                <div style={{ ...c.chip, marginTop:4 }}>Ver reuniones →</div>
+                <div style={{ ...c.chip,marginTop:4 }}>Ver reuniones →</div>
               </div>
             ))}
           </div>
         </div>
       )}
 
-      {view==="vendor" && selectedUser && (
+      {view==="vendor"&&selectedUser&&(
         <div style={c.main} className="anim">
-          <div style={{ display:"flex", alignItems:"center", gap:14, marginBottom:24 }}>
+          <div style={{ display:"flex",alignItems:"center",gap:14,marginBottom:24 }}>
             <Avatar user={selectedUser} size={52}/>
             <div>
-              <div style={{ fontSize:22, fontWeight:800, color:"#111827", letterSpacing:-0.5 }}>{selectedUser.name}</div>
-              <div style={{ fontSize:13, color:"#6B7280" }}>{selectedUser.email}</div>
+              <div style={{ fontSize:22,fontWeight:800,color:"#111827",letterSpacing:-0.5 }}>{selectedUser.name}</div>
+              <div style={{ fontSize:13,color:"#6B7280" }}>{selectedUser.email}</div>
             </div>
           </div>
-          {loadingMeetings && <div style={{ textAlign:"center", padding:48 }}><div style={c.spinner}/><div style={{ marginTop:12, color:"#6B7280", fontSize:14 }}>Cargando reuniones...</div></div>}
-          {error && !loadingMeetings && (
-            <div style={{ background:"#FEF2F2", border:"1px solid #FECACA", borderRadius:12, padding:20, color:"#991B1B", fontSize:14 }}>
+          {loadingMeetings&&<div style={{ textAlign:"center",padding:48 }}><div style={c.spinner}/><div style={{ marginTop:12,color:"#6B7280",fontSize:14 }}>Cargando reuniones...</div></div>}
+          {error&&!loadingMeetings&&(
+            <div style={{ background:"#FEF2F2",border:"1px solid #FECACA",borderRadius:12,padding:20,color:"#991B1B",fontSize:14 }}>
               ⚠️ {error}
-              <button onClick={()=>loadMeetings(selectedUser)} style={{ marginLeft:12, background:"#EF4444", color:"#fff", border:"none", borderRadius:8, padding:"6px 14px", cursor:"pointer", fontSize:13, fontFamily:"inherit" }}>Reintentar</button>
+              <button onClick={()=>loadMeetings(selectedUser)} style={{ marginLeft:12,background:"#EF4444",color:"#fff",border:"none",borderRadius:8,padding:"6px 14px",cursor:"pointer",fontSize:13,fontFamily:"inherit" }}>Reintentar</button>
             </div>
           )}
-          {!loadingMeetings && !error && meetings.length===0 && (
-            <div style={{ ...c.card, textAlign:"center", padding:48, color:"#6B7280" }}>
-              <div style={{ fontSize:32, marginBottom:12 }}>📭</div>
-              <div style={{ fontWeight:600, marginBottom:6 }}>No hay reuniones en este período</div>
+          {!loadingMeetings&&!error&&meetings.length===0&&(
+            <div style={{ ...c.card,textAlign:"center",padding:48,color:"#6B7280" }}>
+              <div style={{ fontSize:32,marginBottom:12 }}>📭</div>
+              <div style={{ fontWeight:600,marginBottom:6 }}>No hay reuniones en este período</div>
               <div style={{ fontSize:13 }}>Ajusta el rango de fechas e intenta de nuevo</div>
             </div>
           )}
-          {!loadingMeetings && meetings.length>0 && (
+          {!loadingMeetings&&meetings.length>0&&(
             <div>
-              <div style={{ fontSize:13, color:"#6B7280", marginBottom:14 }}>{meetings.length} reuniones encontradas</div>
-              {meetings.map(m => (
+              <div style={{ fontSize:13,color:"#6B7280",marginBottom:14 }}>{meetings.length} reuniones encontradas</div>
+              {meetings.map(m=>(
                 <div key={m.id} className="mcard" style={c.meetingCard} onClick={()=>loadMeetingDetail(m)}>
-                  <div style={{ background:"#EFF6FF", borderRadius:10, width:42, height:42, display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, flexShrink:0 }}>🎙</div>
-                  <div style={{ flex:1, minWidth:0 }}>
-                    <div style={{ fontWeight:700, fontSize:14, color:"#111827", marginBottom:2, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{m.name||"Reunión sin nombre"}</div>
-                    <div style={{ fontSize:12, color:"#9CA3AF" }}>{fmt(m.dateFrom)} · {fmtDur(m.duration)} · {m.provider||"—"}</div>
+                  <div style={{ background:"#EFF6FF",borderRadius:10,width:42,height:42,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,flexShrink:0 }}>🎙</div>
+                  <div style={{ flex:1,minWidth:0 }}>
+                    <div style={{ fontWeight:700,fontSize:14,color:"#111827",marginBottom:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{m.name||"Reunión sin nombre"}</div>
+                    <div style={{ fontSize:12,color:"#9CA3AF" }}>{fmt(m.dateFrom)} · {fmtDur(m.duration)} · {m.provider||"—"}</div>
                   </div>
-                  {m.score?.score!=null && <ScoreRing score={m.score.score} size={44}/>}
-                  <span style={{ color:"#9CA3AF", fontSize:18 }}>›</span>
+                  {m.score?.score!=null&&<ScoreRing score={m.score.score} size={44}/>}
+                  <span style={{ color:"#9CA3AF",fontSize:18 }}>›</span>
                 </div>
               ))}
             </div>
@@ -235,89 +249,89 @@ export default function App() {
         </div>
       )}
 
-      {view==="meeting" && selectedMeeting && (
+      {view==="meeting"&&selectedMeeting&&(
         <div style={c.main} className="anim">
           <div style={{ marginBottom:20 }}>
-            <div style={{ fontSize:22, fontWeight:800, color:"#111827", letterSpacing:-0.5 }}>{selectedMeeting.name||"Reunión"}</div>
-            <div style={{ fontSize:13, color:"#6B7280" }}>{fmt(selectedMeeting.dateFrom)} · {fmtDur(selectedMeeting.duration)} · {selectedMeeting.provider||"—"}</div>
+            <div style={{ fontSize:22,fontWeight:800,color:"#111827",letterSpacing:-0.5 }}>{selectedMeeting.name||"Reunión"}</div>
+            <div style={{ fontSize:13,color:"#6B7280" }}>{fmt(selectedMeeting.dateFrom)} · {fmtDur(selectedMeeting.duration)} · {selectedMeeting.provider||"—"}</div>
           </div>
-          {loadingAnalysis && (
-            <div style={{ ...c.card, textAlign:"center", padding:48 }}>
+          {loadingAnalysis&&(
+            <div style={{ ...c.card,textAlign:"center",padding:48 }}>
               <div style={c.spinner}/>
-              <div style={{ marginTop:14, color:"#6B7280", fontSize:14, fontWeight:500 }}>Analizando reunión con IA...</div>
-              <div style={{ fontSize:12, color:"#9CA3AF", marginTop:6 }}>Esto puede tomar unos segundos</div>
+              <div style={{ marginTop:14,color:"#6B7280",fontSize:14,fontWeight:500 }}>Analizando reunión con IA...</div>
+              <div style={{ fontSize:12,color:"#9CA3AF",marginTop:6 }}>Esto puede tomar unos segundos</div>
             </div>
           )}
-          {!loadingAnalysis && analysis && (
+          {!loadingAnalysis&&analysis&&(
             <div className="anim">
-              <div style={{ display:"grid", gridTemplateColumns:"auto 1fr", gap:16, marginBottom:16 }}>
-                <div style={{ ...c.card, display:"flex", flexDirection:"column", alignItems:"center", gap:8, minWidth:140 }}>
+              <div style={{ display:"grid",gridTemplateColumns:"auto 1fr",gap:16,marginBottom:16 }}>
+                <div style={{ ...c.card,display:"flex",flexDirection:"column",alignItems:"center",gap:8,minWidth:140 }}>
                   <ScoreRing score={(meetingDetail||selectedMeeting)?.score?.score??0} size={80}/>
-                  <div style={{ fontSize:12, color:"#6B7280", fontWeight:600 }}>Score Samu</div>
+                  <div style={{ fontSize:12,color:"#6B7280",fontWeight:600 }}>Score Samu</div>
                 </div>
-                <div style={{ ...c.card, display:"flex", flexDirection:"column", justifyContent:"space-between" }}>
+                <div style={{ ...c.card,display:"flex",flexDirection:"column",justifyContent:"space-between" }}>
                   <div>
-                    <div style={{ fontSize:11, fontWeight:700, color:"#4F46E5", textTransform:"uppercase", letterSpacing:1, marginBottom:8 }}>💡 Momento clave</div>
-                    <div style={{ fontSize:15, color:"#111827", fontWeight:500, lineHeight:1.5 }}>{analysis.momentoClave}</div>
+                    <div style={{ fontSize:11,fontWeight:700,color:"#4F46E5",textTransform:"uppercase",letterSpacing:1,marginBottom:8 }}>💡 Momento clave</div>
+                    <div style={{ fontSize:15,color:"#111827",fontWeight:500,lineHeight:1.5 }}>{analysis.momentoClave}</div>
                   </div>
-                  {analysis.siguientePaso && (
-                    <div style={{ background:"#EFF6FF", borderRadius:10, padding:"10px 14px", marginTop:12 }}>
-                      <span style={{ fontSize:11, fontWeight:700, color:"#4F46E5" }}>PRÓXIMO PASO → </span>
-                      <span style={{ fontSize:13, color:"#1E3A5F" }}>{analysis.siguientePaso}</span>
+                  {analysis.siguientePaso&&(
+                    <div style={{ background:"#EFF6FF",borderRadius:10,padding:"10px 14px",marginTop:12 }}>
+                      <span style={{ fontSize:11,fontWeight:700,color:"#4F46E5" }}>PRÓXIMO PASO → </span>
+                      <span style={{ fontSize:13,color:"#1E3A5F" }}>{analysis.siguientePaso}</span>
                     </div>
                   )}
                 </div>
               </div>
-              <div style={{ ...c.card, marginBottom:16 }}>
-                <div style={{ fontSize:13, fontWeight:700, color:"#374151", marginBottom:14 }}>📊 Desempeño en la llamada</div>
+              <div style={{ ...c.card,marginBottom:16 }}>
+                <div style={{ fontSize:13,fontWeight:700,color:"#374151",marginBottom:14 }}>📊 Desempeño en la llamada</div>
                 <SkillBar label="Nivel de energía y seguridad" value={analysis.nivelEnergia} color="#4F46E5"/>
                 <SkillBar label="Escucha activa" value={analysis.escuchaActiva} color="#10B981"/>
                 <SkillBar label="Manejo de objeciones" value={analysis.manejo_objeciones} color="#F59E0B"/>
               </div>
               <div style={c.grid2}>
                 <div style={c.card}>
-                  <div style={{ fontSize:13, fontWeight:700, color:"#374151", marginBottom:12 }}>🎯 Temas clave</div>
-                  {analysis.temasClave?.length ? analysis.temasClave.map((t,i)=><span key={i} style={c.tag}>• {t}</span>) : <span style={{ fontSize:13, color:"#9CA3AF" }}>No identificados</span>}
+                  <div style={{ fontSize:13,fontWeight:700,color:"#374151",marginBottom:12 }}>🎯 Temas clave</div>
+                  {analysis.temasClave?.length?analysis.temasClave.map((t,i)=><span key={i} style={c.tag}>• {t}</span>):<span style={{ fontSize:13,color:"#9CA3AF" }}>No identificados</span>}
                 </div>
                 <div style={c.card}>
-                  <div style={{ fontSize:13, fontWeight:700, color:"#374151", marginBottom:12 }}>❓ Preguntas sin respuesta</div>
-                  {analysis.preguntasSinRespuesta?.length ? analysis.preguntasSinRespuesta.map((p,i)=><span key={i} style={c.tagRed}>• {p}</span>) : <span style={{ fontSize:13, color:"#10B981", fontWeight:500 }}>✓ Todas respondidas</span>}
+                  <div style={{ fontSize:13,fontWeight:700,color:"#374151",marginBottom:12 }}>❓ Preguntas sin respuesta</div>
+                  {analysis.preguntasSinRespuesta?.length?analysis.preguntasSinRespuesta.map((p,i)=><span key={i} style={c.tagRed}>• {p}</span>):<span style={{ fontSize:13,color:"#10B981",fontWeight:500 }}>✓ Todas respondidas</span>}
                 </div>
                 <div style={c.card}>
-                  <div style={{ fontSize:13, fontWeight:700, color:"#374151", marginBottom:12 }}>✅ Lo que hizo bien</div>
-                  {analysis.puntosPositivos?.length ? analysis.puntosPositivos.map((p,i)=><span key={i} style={c.tagGreen}>• {p}</span>) : <span style={{ fontSize:13, color:"#9CA3AF" }}>Sin datos</span>}
+                  <div style={{ fontSize:13,fontWeight:700,color:"#374151",marginBottom:12 }}>✅ Lo que hizo bien</div>
+                  {analysis.puntosPositivos?.length?analysis.puntosPositivos.map((p,i)=><span key={i} style={c.tagGreen}>• {p}</span>):<span style={{ fontSize:13,color:"#9CA3AF" }}>Sin datos</span>}
                 </div>
                 <div style={c.card}>
-                  <div style={{ fontSize:13, fontWeight:700, color:"#374151", marginBottom:12 }}>📈 Áreas de mejora</div>
-                  {analysis.areasDesMejora?.length ? analysis.areasDesMejora.map((a,i)=>(
+                  <div style={{ fontSize:13,fontWeight:700,color:"#374151",marginBottom:12 }}>📈 Áreas de mejora</div>
+                  {analysis.areasDesMejora?.length?analysis.areasDesMejora.map((a,i)=>(
                     <div key={i} style={{ marginBottom:10 }}>
-                      <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:4 }}>
+                      <div style={{ display:"flex",alignItems:"center",gap:8,marginBottom:4 }}>
                         <Badge text={a.tipo==="blanda"?"Habilidad blanda":"Técnica de venta"} type={a.tipo==="blanda"?"blanda":"tecnica"}/>
-                        <span style={{ fontSize:13, fontWeight:600, color:"#374151" }}>{a.area}</span>
+                        <span style={{ fontSize:13,fontWeight:600,color:"#374151" }}>{a.area}</span>
                       </div>
-                      <div style={{ fontSize:12, color:"#6B7280", paddingLeft:4 }}>{a.descripcion}</div>
+                      <div style={{ fontSize:12,color:"#6B7280",paddingLeft:4 }}>{a.descripcion}</div>
                     </div>
-                  )) : <span style={{ fontSize:13, color:"#9CA3AF" }}>Sin áreas identificadas</span>}
+                  )):<span style={{ fontSize:13,color:"#9CA3AF" }}>Sin áreas identificadas</span>}
                 </div>
               </div>
-              {analysis.recomendaciones?.length>0 && (
-                <div style={{ ...c.card, marginTop:16 }}>
-                  <div style={{ fontSize:13, fontWeight:700, color:"#374151", marginBottom:12 }}>🚀 Recomendaciones para el coach</div>
-                  <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))", gap:10 }}>
+              {analysis.recomendaciones?.length>0&&(
+                <div style={{ ...c.card,marginTop:16 }}>
+                  <div style={{ fontSize:13,fontWeight:700,color:"#374151",marginBottom:12 }}>🚀 Recomendaciones para el coach</div>
+                  <div style={{ display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))",gap:10 }}>
                     {analysis.recomendaciones.map((r,i)=><span key={i} style={c.tagBlue}>{i+1}. {r}</span>)}
                   </div>
                 </div>
               )}
-              {(meetingDetail||selectedMeeting)?.score?.feedback && (
-                <div style={{ ...c.card, marginTop:16, background:"#FAFAFA" }}>
-                  <div style={{ fontSize:11, fontWeight:700, color:"#9CA3AF", textTransform:"uppercase", letterSpacing:1, marginBottom:8 }}>Feedback original de Samu</div>
-                  <div style={{ fontSize:13, color:"#374151", lineHeight:1.7 }}>{(meetingDetail||selectedMeeting).score.feedback}</div>
+              {(meetingDetail||selectedMeeting)?.score?.feedback&&(
+                <div style={{ ...c.card,marginTop:16,background:"#FAFAFA" }}>
+                  <div style={{ fontSize:11,fontWeight:700,color:"#9CA3AF",textTransform:"uppercase",letterSpacing:1,marginBottom:8 }}>Feedback original de Samu</div>
+                  <div style={{ fontSize:13,color:"#374151",lineHeight:1.7 }}>{(meetingDetail||selectedMeeting).score.feedback}</div>
                 </div>
               )}
             </div>
           )}
-          {!loadingAnalysis && !analysis && (
-            <div style={{ ...c.card, textAlign:"center", padding:40, color:"#6B7280" }}>
+          {!loadingAnalysis&&!analysis&&(
+            <div style={{ ...c.card,textAlign:"center",padding:40,color:"#6B7280" }}>
               No se pudo generar el análisis. La reunión puede no tener transcripción disponible aún.
             </div>
           )}
